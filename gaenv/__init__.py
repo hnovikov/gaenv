@@ -2,12 +2,13 @@
 """
 Utility to create python package symlinks for deployment in GAE. Before running this script, you must run pip install <requirements>.
 
-Usage: gaenv [options]
+Usage: gaenv [--exclude=LIB]... [options]
 
 Options:
     -r --requirements=FILE		Specify the requirements  [default: requirements.txt]
     -l --lib=DIR                        Change the the output dir [default: gaenv_lib]
     -n --no-import			Will not add import statement to appengine_config.py
+    -e --exclude=LIB...		Exclude library from being linked, can be used multiple times
 """
 from distutils.sysconfig import get_python_lib
 from docopt import docopt
@@ -30,7 +31,10 @@ def main():
     pypi_requirements, cvs_requirements = compute_requirements(requirement_path)
     requirements = parse_requirements(pypi_requirements, cvs_requirements)
 
-    links = compute_package_links(requirements)
+    exclude = args['--exclude'] or []
+    if not isinstance(exclude, list):
+        exclude = [exclude]
+    links = compute_package_links(requirements, exclude)
     if links:
         libs_directory = create_libs_directory(current_path, args['--lib'])
         create_package_links(libs_directory, links)
@@ -83,8 +87,9 @@ def parse_requirements(pypi_requirements, cvs_requirements):
     return requirements
 
 
-def compute_package_links(requirements):
+def compute_package_links(requirements, exclude=[]):
     links = []
+    exclude = dict((link, False) for link in exclude)
     for requirement in requirements:
         try:
             if isinstance(requirement, pkg_resources.Distribution):
@@ -98,11 +103,20 @@ def compute_package_links(requirements):
             print 'Version don\'t match [%s] - create virtualenv or match the version' % requirement
             continue
 
-        if dist.has_metadata('top_level.txt'):
-            links.extend(dist.get_metadata_lines('top_level.txt'))
+        for metatadata_filename in ('top_level.txt', 'dependency_links.txt'):
+            if not dist.has_metadata(metatadata_filename):
+                continue
+            for link in dist.get_metadata_lines(metatadata_filename):
+                if link in exclude:
+                    print "Excluding: %s" % link
+                    exclude[link] = True
+                else:
+                    links.append(link)
 
-        if dist.has_metadata('dependency_links.txt'):
-            links.extend(dist.get_metadata_lines('dependency_links.txt'))
+    for link, e in exclude.iteritems():
+        if not e:
+            print "Couldn't exclude: %s" % link
+
     return links
 
 
