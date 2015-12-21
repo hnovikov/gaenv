@@ -125,20 +125,39 @@ def create_package_links(libs, links, create_link=None):
     if not create_link:
         create_link = create_symlink
     package_path = get_python_lib()
+
+    package_paths = [os.path.realpath(package_path)]
+    for package_path_file in os.listdir(package_path):
+        if package_path_file.endswith('.egg-link'):
+            with file(os.path.join(package_path, package_path_file)) as egg_links:
+                for extra_path in reversed(list(egg_links)):
+                    extra_path = os.path.realpath(os.path.join(package_path, extra_path.strip()))
+                    if extra_path not in package_paths:
+                        package_paths.append(extra_path)
+    package_paths.reverse()
+
     for link in links:
         link = link.strip()
-        symlink = os.path.join(package_path, link)
-        if not os.path.exists(symlink) and os.path.exists(symlink + '.py'):
-            symlink += '.py'
-            dest = os.path.join(libs, link + '.py')
+        source = None
+        dest = None
+
+        for package_path in package_paths:
+            expected_path = os.path.join(package_path, link)
+
+            if os.path.exists(expected_path):
+                source = expected_path
+                dest = os.path.join(libs, link)
+                break
+            elif os.path.exists(expected_path + '.py'):
+                source =  expected_path + '.py'
+                dest = os.path.join(libs, link + '.py')
+                break
+
+        if os.path.exists(source) and dest:
+            create_link(source, dest)
+            print 'Linked: {}'.format(link)
         else:
-            dest = os.path.join(libs, link)
-
-        if os.path.exists(symlink):
-            create_link(symlink, dest)
-
-        print 'Linked: {}'.format(link)
-
+            print 'Failed to link: {}'.format(link)
 
 def get_appengine_config(config_path):
     if not os.path.exists(config_path):
